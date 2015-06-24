@@ -32,21 +32,21 @@ import argparse
 import cPickle
 from Bio import SeqIO
 from sequence import *
-from tools import predict_disorder, obtain_pssm
+from tools import *
 
 # Command line argument parser
 parser = argparse.ArgumentParser(description='Predicting neddylation target sites from protein sequences.')
 parser.add_argument("FASTA", help="Input protein sequence file (FASTA-formatted)")
-parser.add_argument('--fmt', '-f', action='store', dest='fmt', help='Output format (available: CSV or TSV, '
-                                                                       'default: TSV)')
+parser.add_argument('--fmt', '-f', action='store', dest='fmt', type=str, default='tsv',
+                    help='Output format (available: CSV or TSV, default: TSV)')
 parser.add_argument('--out', '-o', action='store', dest='out', help='Output filename (default: standard output)')
 parser.add_argument('--pssm', '-p', action='store', dest='pssm', help='Input PSSM file (only works for single protein '
                                                                       'prediction)')
 parser.add_argument('--dis', '-d', action='store', dest='dis', help='Input IUPred output file (only works for single '
                                                                     'protein prediction)')
-parser.add_argument('--thr', '-t', action='store', dest='thr', help='Prediction threshold (accepts: floating number '
-                                                                    'between -2.0 and 2.0, or \'low\',''medium\','
-                                                                    '\'high\', default: 0.0)')
+parser.add_argument('--thr', '-t', action='store', dest='thr',
+                    help='Prediction threshold (accepts: floating number between -2.0 and 2.0, or \'low\',''medium\', '
+                         '\'high\', default: 0.0)')
 parser.add_argument('--version', '-v', action='version', version='NeddyPreddy Standalone Version v0.2')
 args = parser.parse_args()
 
@@ -61,9 +61,6 @@ else:
         thr = (1.0, 'high')
     else:
         thr = (float(args.thr), 'custom')
-
-# Load classifier model from pickle
-(clf, scaler, metadata) = cPickle.load(open('NeddyPreddyModel.dat', 'rb'))
 
 # File check
 if not os.path.exists(args.FASTA):
@@ -114,6 +111,12 @@ for seq_record in sequence_records:
     seq.set_aa_freq()
     sequences.append(seq)
 
+# Generate classifier object
+(clf, scaler, metadata) = get_classifier()
+if not clf:
+    sys.stderr.write("An issue occurred during classifier training. Please check tools.log.\n")
+    sys.exit(1)
+
 if os.path.exists('tools.log'):  # If tools have been used, removing log here, as you wouldn't need it after this point
     os.remove('tools.log')
 
@@ -127,11 +130,16 @@ for seq in sequences:
 
                 clf_ready = resid.get_instance(metadata['feats'], scaler).data
 
-                dec_val = clf.decision_function(clf_ready)[0][0]
+                decfunout = clf.decision_function(clf_ready)
+                if decfunout[0] is list: # scikit-learn returns decision value in a nested list in 0.15, in a list in 0.16
+                    dec_val = decfunout[0][0]
+                else:
+                    dec_val = decfunout[0]
+
                 prob = clf.predict_proba(clf_ready)[0][1]
 
                 if dec_val >= thr[0]:
-                    prediction_results.append((seq.identifier, str(resid.no), 'Neddylated',
+                    prediction_results.append((seq.identifier, 'K'+str(resid.no), 'Neddylated',
                                                '%.2f' % dec_val, '%.2f' % prob))
 
 if args.out:  # Set output stream
