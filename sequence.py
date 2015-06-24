@@ -25,11 +25,7 @@ __author__ = "asyavuz, sozerberk"
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 import re
-import random
-import numpy
 import residue
-
-#PSIPRED Prediction alphabet
 
 # Normal Amino Acid Alphabet
 aa_dict = {"ALA": 0, "ARG": 1, "ASN": 2, "ASP": 3, "CYS": 4, "GLN": 5, "GLU": 6, "GLY": 7, "HIS": 8,
@@ -67,23 +63,7 @@ class Seq(object):
         else:
             self.features = {}
 
-    def add_pssm(self, filename=''):
-        '''
-        Wrapper for PSSM parser function
-        :param filename: PSSM file
-        :return: Nothing
-        '''
-        self.parse_from_pssm(filename)
-
     def add_iupred(self, filename=''):
-        '''
-        Wrapper for IUPred parser function
-        :param filename: IUPred prediction result file
-        :return: Nothing
-        '''
-        self.parse_from_iupred(filename)
-
-    def parse_from_iupred(self, filename):
         '''
         IUPred results parser
         :param filename: IUPred prediction result file
@@ -103,13 +83,13 @@ class Seq(object):
                 else:
                     raise Exception('Mismatch in IUPRED File with Sequence!')
 
-    def parse_from_pssm(self, ifile):
+    def add_pssm(self, filename=''):
         '''
         PSSM  parser
-        :param ifile: IUPred prediction result file
+        :param filename: IUPred prediction result file
         :return: Nothing
         '''
-        ifh = open(ifile, "r")
+        ifh = open(filename, "r")
         lines = ifh.readlines()
         ifh.close()
 
@@ -132,7 +112,7 @@ class Seq(object):
                     aa = line_match.group(2)
                     if self.residues[rc].aa != aa:
                         raise Exception("Invalid PSSM File! Amino acid mismatch at line %d for aminoacid %d in file %s.\nHave "
-                                      "%s, got %s." % (idx, rc, ifile, self.residues[rc].aa, aa))
+                                      "%s, got %s." % (idx, rc, filename, self.residues[rc].aa, aa))
 
                     elems = line_match.group(3).split()[0:20]
                     self.residues[rc].features['PSSM'] = [ int(x) for x in elems ]
