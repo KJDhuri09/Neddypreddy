@@ -1,20 +1,54 @@
-NeddyPreddy Standalone Version
-------------------------------
-You can clone this repository to run NeddyPreddy standalone version. Please beware that this is just a working draft at the moment. We will finalise the source code on June 24th. 
+NeddyPreddy
+================================
+NeddyPreddy is a neddylation site predictor that uses SVM to predict neddylation sites from protein sequences. 
 
-In order to run NeddyPreddy, you need to perform IUPred prediction and PSSM generation separately at the moment. 
+Installation
+-------------
+NeddyPreddy uses various python libraries, as well as BLAST+ executables and nr dataset. If you already have PSSM files 
+of your proteins, you can skip BLAST+ installation.
 
-Documentation will also be available on June 24, 2015.
-Sorry for the inconvenience.
+You can get NeddyPreddy with 
+```text
+git clone https://asyavuz@bitbucket.org/asyavuz/neddypreddy.git
+``` 
+command.
 
-## Sample Usage ##
+Please refer individual websites of requirements for their installation instructions. 
 
-```
-#!python
+### Requirements ###
+* [BLAST+](http://blast.ncbi.nlm.nih.gov/Blast.cgi?CMD=Web&PAGE_TYPE=BlastDocs&DOC_TYPE=Download)
+* [BioPython](http://biopython.org/)
+* [scikit-learn](http://scikit-learn.org)
+* [IUPred](http://iupred.enzim.hu/Downloads.php) *(for local disorder prediction)*
+* [mechanize](http://wwwsearch.sourceforge.net/mechanize/) *(for online disorder prediction)*
+* [BeautifulSoup](http://www.crummy.com/software/BeautifulSoup/) *(for online disorder prediction)*
 
-python runneddypreddy.py my_protein.fasta my_protein.pssm my_protein.iupred --thr 0.3
-```
+* * *
 
-## Requirements ##
-* BioPython: [http://biopython.org/](http://biopython.org/)
-* scikit-learn: [http://scikit-learn.org](http://scikit-learn.org)
+Usage
+-----
+The most basic use case would be as follows:
+
+~~~~
+python runneddypreddy.py my_protein.fasta
+~~~~
+
+For additional parameters please type:
+
+~~~~
+python runneddypreddy.py --help
+~~~~
+
+* * *
+
+Licence
+-------
+NeddyPreddy uses the MIT License (see LICENCE.md). Please open an issue in this page if you have any questions.
+
+* * *
+
+Reference
+---------
+If you would like to use NeddyPreddy in your publications, please consider citing:
+>  Yavuz AS, Sozer NB, Sezerman OS. "Prediction of neddylation sites from protein sequences 
+>  and sequence-derived properties". BMC Bioinformatics, submitted.
