@@ -76,6 +76,8 @@ if args.dis and not os.path.exists(args.dis):
     sys.stderr.write("Cannot find disorder file: %s\n" % args.dis)
     sys.exit(1)
 
+print "NeddyPreddy - neddylation site prediction"
+print "Loading input file: %s" % args.FASTA
 # Parse sequences
 sequence_records = list(SeqIO.parse(args.FASTA, 'fasta'))
 
