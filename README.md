@@ -54,4 +54,4 @@ Reference
 ---------
 If you would like to use NeddyPreddy in your publications, please consider citing:
 >  Yavuz AS, Sozer NB, Sezerman OS. "Prediction of neddylation sites from protein sequences 
->  and sequence-derived properties". *BMC Bioinformatics*, in press.
+>  and sequence-derived properties". *BMC Bioinformatics*, 2015, 16(S18):S9.
