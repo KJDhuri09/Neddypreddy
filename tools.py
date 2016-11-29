@@ -27,9 +27,13 @@ __author__ = 'asyavuz'
 import os
 import sys
 import logging
-import subprocess
+import cPickle
 import tempfile
+from sklearn import svm
+import subprocess, shlex
+from sklearn import preprocessing
 from multiprocessing import cpu_count
+logging.basicConfig(filename='tools.log', level=logging.DEBUG)
 
 MAX_CORE_PER_JOB = cpu_count()  # Change this value to 1 if you want psiblast to use single core only!
 
@@ -41,10 +45,11 @@ def obtain_pssm(sequence):
     :param sequence: Sequence object
     :return: Returns PSSM file name if PSSM calculation is successfully completed, False if calculation is failed.
     '''
-    psiblast_exec = "psiblast"
-    logger = logging.basicConfig(filename='psiblast.log', level=logging.DEBUG)
 
-    tmp = tempfile.NamedTemporaryFile(prefix='nptmp')
+    psiblast_exec = "psiblast"
+    logger = logging.getLogger('psiblast')
+
+    tmp = tempfile.NamedTemporaryFile(prefix='nptmp', suffix='.fasta', delete=False)
     seqfile = tmp.name
     tmp.write(sequence.get_fasta())
     tmp.close()
@@ -53,13 +58,33 @@ def obtain_pssm(sequence):
     command = psiblast_exec+" -num_threads %d -db nr -num_iterations 3 -inclusion_ethresh 1e-5 " % MAX_CORE_PER_JOB
     command += "-query "+seqfile+" -out_ascii_pssm "+seqfile+".pssm"
     logger.debug("Running command: %s" % command)
-    process = subprocess.Popen(command, shell=True)
+    args = shlex.split(command)
+
+    psiblast_output = tempfile.NamedTemporaryFile(prefix='psib', suffix='.out', delete=True)
+    logger.debug("Writing PSIBLAST output to %s" % psiblast_output.name)
+    try:
+        process = subprocess.Popen(args, stdout=psiblast_output, stderr=subprocess.PIPE)
+    except OSError:
+        logger.error("Cannot find psiblast installation. Please make sure you installed BLAST+ and set PATH variable"
+                     " correctly.")
+        sys.stderr.write("Cannot find psiblast installation. Please make sure you installed BLAST+ and set "
+                         "PATH variable correctly.\n")
+        psiblast_output.close()
+        return False
+
+    for line in process.stderr:
+        logger.error(line)
+
     process.wait()
 
     logger.info("PSIBLAST run of "+seqfile+" finished with code "+str(process.returncode)+".")
     if int(process.returncode) == 0:
+        # Remove temporary sequence file
         os.remove(seqfile)
-        os.remove('psiblast.log')
+
+        # Remove psiblast output file if job is successful
+        psiblast_output.close()
+
         return seqfile+".pssm"
     else:
         return False
@@ -72,9 +97,10 @@ def predict_disorder(sequence):
     :return: Returns IUPred prediction result file if prediction is successfully completed, False if prediction is failed.
     '''
     type = 'local'
-    logger=logging.basicConfig(filename='iupred.log', level=logging.DEBUG)
 
-    tmp = tempfile.NamedTemporaryFile(prefix='nptmp')
+    logger = logging.getLogger('iupred')
+
+    tmp = tempfile.NamedTemporaryFile(prefix='nptmp', suffix='.fasta', delete=False)
     seqfile = tmp.name
     tmp.write(sequence.get_fasta())
     tmp.close()
@@ -82,7 +108,7 @@ def predict_disorder(sequence):
     try:
         iupred = os.environ["IUPred_PATH"]+'/iupred'
     except KeyError:
-        logging.info("IUPred environment variable is not set. Trying to access remote server...")
+        logger.info("IUPred environment variable is not set. Trying to access remote server...")
         sys.stderr.write("IUPred environment variable is not set. Trying to access remote server...\n")
         type = 'remote'
 
@@ -90,12 +116,20 @@ def predict_disorder(sequence):
     if not type == 'remote':
         ofh = open(out_file, 'w')
         command = "%s %s long" % (iupred, seqfile)
-        process = subprocess.Popen(command, stdout=ofh, shell=True)
+        logger.info("Running IUPred with command: %s" % command)
+        logger.info("Expected output file: %s" % out_file)
+        args = shlex.split(command)
+        process = subprocess.Popen(args, stdout=ofh, stderr=subprocess.PIPE)
+
+        for line in process.stderr:
+            logger.error(line)
+
         process.wait()
         ofh.close()
+
         logger.info("IUPred run of "+sequence.identifier+" finished with code "+str(process.returncode)+".")
         if process.returncode != 0:
-            logging.error("IUPred run was unsuccessful with return code %s." % str(process.returncode))
+            logger.error("IUPred run was unsuccessful with return code %s." % str(process.returncode))
             return False
     else:
         try:
@@ -123,8 +157,8 @@ def predict_disorder(sequence):
             request2 = form.click()
             response2 = mechanize.urlopen(request2)
             content = response2.read()
-        except:
-            logger.error("Problem in IUPred remote server! Exception: %s" % (sys.exc_info()[0]))
+        except Exception, e:
+            logger.error("Problem in IUPred remote server! Exception: %s" % str(e))
             return False
 
         soup = BeautifulSoup.BeautifulSoup(content)
@@ -148,5 +182,37 @@ def predict_disorder(sequence):
             if row_content:
                 ofh.write("%s\t%s\t%s\n" % (row_content[0], row_content[1], row_content[2]))
         ofh.close()
+        logger.info("Completed prediction for %s, file saved to: %s." % (sequence.identifier, out_file))
 
-        return out_file
+    os.remove(seqfile)
+    return out_file
+
+def get_classifier():
+    '''
+    This function fits a classifier model to the training data. Classifier is trained in the each run to ensure
+    compability between different scikit-learn versions. Serialized classifier objects fail to function in different
+    versions of scikit-learn.
+    :return: classifier and scaler object, as well as metadata of classifier.
+    '''
+    logger = logging.getLogger('classifier')
+    pickle = "NeddyPreddyModel.dat"
+    try:
+        train_dataset, metadata = cPickle.load(open(pickle, 'rb'))
+    except Exception, e:
+        logger.error("Problem in loading pickled dataset. Exception: %s" % str(e))
+        return False, False, False
+
+    try:
+        scaler = preprocessing.MinMaxScaler().fit(train_dataset.data)
+    except Exception, e:
+        logger.error("Problem in scaler fitting. Exception: %s" % str(e))
+        return False, False, False
+
+    try:
+        clf = svm.SVC(C=metadata['C'], kernel='rbf', gamma=metadata['gamma'], class_weight=metadata['class_weight'], probability=True)
+        clf.fit(scaler.transform(train_dataset.data), train_dataset.target)
+    except Exception, e:
+        logger.error("Problem in training the classifier. Exception: %s" % str(e))
+        return False, False, False
+
+    return clf, scaler, metadata
