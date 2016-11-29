@@ -26,16 +26,29 @@ __author__ = 'asyavuz'
 # SOFTWARE.
 import os
 import sys
+import json
 import logging
-import cPickle
-import tempfile
-from sklearn import svm
 import subprocess, shlex
-from sklearn import preprocessing
+import tempfile
+import numpy as np
+import sklearn as sk
 from multiprocessing import cpu_count
+import sklearn
+from sklearn import svm, preprocessing
+
 logging.basicConfig(filename='tools.log', level=logging.DEBUG)
 
 MAX_CORE_PER_JOB = cpu_count()  # Change this value to 1 if you want psiblast to use single core only!
+
+
+class Bunch(dict):
+    """Container object for datasets: dictionary-like object that
+       exposes its keys as attributes."""
+
+    def __init__(self, **kwargs):
+        dict.__init__(self, kwargs)
+        self.__dict__ = self
+
 
 def obtain_pssm(sequence):
     '''
@@ -49,50 +62,47 @@ def obtain_pssm(sequence):
     psiblast_exec = "psiblast"
     logger = logging.getLogger('psiblast')
 
-    tmp = tempfile.NamedTemporaryFile(prefix='nptmp', suffix='.fasta', delete=False)
+    tmp = tempfile.NamedTemporaryFile(mode="w", prefix='nptmp', suffix='.fasta', delete=False)
     seqfile = tmp.name
     tmp.write(sequence.get_fasta())
     tmp.close()
+
+    tmp_stdout = tempfile.TemporaryFile()
+    tmp_stderr = tempfile.TemporaryFile()
     logger.info("Running PSIBLAST for %s..." % sequence.identifier)
 
-    command = psiblast_exec+" -num_threads %d -db nr -num_iterations 3 -inclusion_ethresh 1e-5 " % MAX_CORE_PER_JOB
-    command += "-query "+seqfile+" -out_ascii_pssm "+seqfile+".pssm"
+    command = psiblast_exec + " -num_threads %d -db nr -num_iterations 3 -inclusion_ethresh 1e-5 " % MAX_CORE_PER_JOB
+    command += "-query " + seqfile + " -out_ascii_pssm " + seqfile + ".pssm"
     logger.debug("Running command: %s" % command)
     args = shlex.split(command)
-
-    psiblast_output = tempfile.NamedTemporaryFile(prefix='psib', suffix='.out', delete=True)
-    logger.debug("Writing PSIBLAST output to %s" % psiblast_output.name)
     try:
-        process = subprocess.Popen(args, stdout=psiblast_output, stderr=subprocess.PIPE)
+        process = subprocess.Popen(args, stdout=tmp_stdout, stderr=tmp_stderr)
     except OSError:
         logger.error("Cannot find psiblast installation. Please make sure you installed BLAST+ and set PATH variable"
-                     " correctly.")
+                     "correctly.")
         sys.stderr.write("Cannot find psiblast installation. Please make sure you installed BLAST+ and set "
                          "PATH variable correctly.\n")
-        psiblast_output.close()
         return False
-
-    for line in process.stderr:
-        logger.error(line)
-
     process.wait()
+    # stdout, stderr = process.communicate()
 
-    logger.info("PSIBLAST run of "+seqfile+" finished with code "+str(process.returncode)+".")
+    # if stdout:
+    #    logger.info(stdout)
+    # if stderr:
+    #    logger.error(stderr)
+
+    logger.info("PSIBLAST run of " + seqfile + " finished with code " + str(process.returncode) + ".")
     if int(process.returncode) == 0:
-        # Remove temporary sequence file
         os.remove(seqfile)
-
-        # Remove psiblast output file if job is successful
-        psiblast_output.close()
-
-        return seqfile+".pssm"
+        return seqfile + ".pssm"
     else:
         return False
+
 
 def predict_disorder(sequence):
     '''
     Predicts disorder using IUPred. Tries to use local installation first, if fails, tries to use IUPred web server.
-    Requires mechanize and BeautifulSoup modules.
+    Requires mechanize and BeautifulSoup4 modules.
     :param sequence: Sequence object
     :return: Returns IUPred prediction result file if prediction is successfully completed, False if prediction is failed.
     '''
@@ -100,19 +110,19 @@ def predict_disorder(sequence):
 
     logger = logging.getLogger('iupred')
 
-    tmp = tempfile.NamedTemporaryFile(prefix='nptmp', suffix='.fasta', delete=False)
+    tmp = tempfile.NamedTemporaryFile(mode="w", prefix='nptmp', suffix='.fasta', delete=False)
     seqfile = tmp.name
     tmp.write(sequence.get_fasta())
     tmp.close()
 
     try:
-        iupred = os.environ["IUPred_PATH"]+'/iupred'
+        iupred = os.environ["IUPred_PATH"] + '/iupred'
     except KeyError:
         logger.info("IUPred environment variable is not set. Trying to access remote server...")
         sys.stderr.write("IUPred environment variable is not set. Trying to access remote server...\n")
         type = 'remote'
 
-    out_file = seqfile+'.iupred'
+    out_file = seqfile + '.iupred'
     if not type == 'remote':
         ofh = open(out_file, 'w')
         command = "%s %s long" % (iupred, seqfile)
@@ -120,48 +130,46 @@ def predict_disorder(sequence):
         logger.info("Expected output file: %s" % out_file)
         args = shlex.split(command)
         process = subprocess.Popen(args, stdout=ofh, stderr=subprocess.PIPE)
-
-        for line in process.stderr:
-            logger.error(line)
-
         process.wait()
         ofh.close()
 
-        logger.info("IUPred run of "+sequence.identifier+" finished with code "+str(process.returncode)+".")
+        stdout, stderr = process.communicate()
+
+        if stdout:
+            logger.info(stdout)
+        if stderr:
+            logger.error(stderr)
+
+        logger.info("IUPred run of " + sequence.identifier + " finished with code " + str(process.returncode) + ".")
         if process.returncode != 0:
             logger.error("IUPred run was unsuccessful with return code %s." % str(process.returncode))
             return False
     else:
         try:
-            import BeautifulSoup
+            from bs4 import BeautifulSoup
         except ImportError:
-            logger.error("Remote IUPred usage requires BeautifulSoup module, which is not installed in your system.")
-            sys.stderr.write("Remote IUPred usage requires BeautifulSoup module, which is not installed in your system.\n")
+            logger.error("Remote IUPred usage requires BeautifulSoup4 module, which is not installed in your system.")
+            sys.stderr.write(
+                "Remote IUPred usage requires BeautifulSoup4 module, which is not installed in your system.\n")
             return False
 
         try:
-            import mechanize
+            import requests
         except ImportError:
-            logger.error("Remote IUPred usage requires mechanize module, which is not installed in your system.")
-            sys.stderr.write("Remote IUPred usage requires mechanize module, which is not installed in your system.\n")
+            logger.error("Remote IUPred usage requires requests module, which is not installed in your system.")
+            sys.stderr.write("Remote IUPred usage requires requests module, which is not installed in your system.\n")
             return False
 
         logger.info("Loading IUPred server for %s." % sequence.identifier)
-        response = mechanize.urlopen("http://iupred.enzim.hu/")
-        forms = mechanize.ParseResponse(response, backwards_compat=False)
         try:
-            form = forms[0]
-            form['seq'] = sequence.sequence
-            form['type'] = ['long']
-            form['output'] = ['data']
-            request2 = form.click()
-            response2 = mechanize.urlopen(request2)
-            content = response2.read()
-        except Exception, e:
+            payload = {"seq": sequence.sequence, "type": "long", "output": "data", "sp": ""}
+            response = requests.post("http://iupred.enzim.hu/pred.php", data=payload)
+            content = response.text
+        except Exception as e:
             logger.error("Problem in IUPred remote server! Exception: %s" % str(e))
             return False
 
-        soup = BeautifulSoup.BeautifulSoup(content)
+        soup = BeautifulSoup(content, "html.parser")
         table = soup.find('table', attrs={'width': 420})
 
         ofh = open(out_file, 'w')
@@ -187,7 +195,8 @@ def predict_disorder(sequence):
     os.remove(seqfile)
     return out_file
 
-def get_classifier():
+
+def get_classifier(dname):
     '''
     This function fits a classifier model to the training data. Classifier is trained in the each run to ensure
     compability between different scikit-learn versions. Serialized classifier objects fail to function in different
@@ -195,24 +204,42 @@ def get_classifier():
     :return: classifier and scaler object, as well as metadata of classifier.
     '''
     logger = logging.getLogger('classifier')
-    pickle = "NeddyPreddyModel.dat"
-    try:
-        train_dataset, metadata = cPickle.load(open(pickle, 'rb'))
-    except Exception, e:
-        logger.error("Problem in loading pickled dataset. Exception: %s" % str(e))
-        return False, False, False
+
+    if sklearn.__version__ >= "0.18":
+        from sklearn.model_selection import cross_val_score
+    else:
+        from sklearn.cross_validation import cross_val_score
+
+    train_dataset = Bunch()
+    train_dataset.data = np.load(dname + "/data/TS.npy")
+    train_dataset.target = np.load(dname + "/data/TT.npy")
+    with open(dname + "/data/Metadata.json") as fh:
+        metadata = json.load(fh)
 
     try:
         scaler = preprocessing.MinMaxScaler().fit(train_dataset.data)
-    except Exception, e:
+    except Exception as e:
         logger.error("Problem in scaler fitting. Exception: %s" % str(e))
         return False, False, False
 
     try:
-        clf = svm.SVC(C=metadata['C'], kernel='rbf', gamma=metadata['gamma'], class_weight=metadata['class_weight'], probability=True)
+        # Fix class weights, json does not allow numeric keys, scikit does not like string keys
+        metadata["class_weight"][0] = metadata["class_weight"]["0"]
+        metadata["class_weight"][1] = metadata["class_weight"]["1"]
+        del metadata["class_weight"]["0"]
+        del metadata["class_weight"]["1"]
+
+        clf = svm.SVC(C=metadata['C'], kernel='rbf', gamma=metadata['gamma'], class_weight=metadata['class_weight'],
+                      probability=True)
+
+        # Check if cross-validation score is consistent with published method (for compatibility)
+        scores = cross_val_score(clf, scaler.transform(train_dataset.data), train_dataset.target, cv=5)
+        assert scores.mean() - (scores.std() * 2) <= 0.91 <= scores.mean() + (scores.std() * 2)
+
         clf.fit(scaler.transform(train_dataset.data), train_dataset.target)
-    except Exception, e:
+    except Exception as e:
         logger.error("Problem in training the classifier. Exception: %s" % str(e))
+        sys.stderr.write("Problem in training the NeddyPreddy classifier.\n")
         return False, False, False
 
     return clf, scaler, metadata
