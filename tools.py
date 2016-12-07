@@ -102,7 +102,7 @@ def obtain_pssm(sequence):
 def predict_disorder(sequence):
     '''
     Predicts disorder using IUPred. Tries to use local installation first, if fails, tries to use IUPred web server.
-    Requires mechanize and BeautifulSoup4 modules.
+    Remote prediction requires requests and BeautifulSoup4 modules.
     :param sequence: Sequence object
     :return: Returns IUPred prediction result file if prediction is successfully completed, False if prediction is failed.
     '''
